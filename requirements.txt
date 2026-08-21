@@ -1,6 +1,7 @@
 faiss-cpu>=1.8,<2
 numpy>=1.26,<3
 openai>=1.40,<3
+python-dotenv>=1.0,<2
 scikit-learn>=1.4,<2
 torch>=2.2,<3
 transformers>=4.44,<6
