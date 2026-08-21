@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Models, indexes and generated data
+models/
+nltk_data/
+indexes/
+*.faiss
+*.pkl
+outputs/
+
+# Local/private corpora and unrelated experiments
+三体.txt
+本地文档.txt
+doc.md
+cosyvoice_tts_app.py
+README_TTS.md
+requirements-tts.txt
+.agents/
