@@ -10,6 +10,7 @@ import faiss
 import numpy as np
 import torch
 from openai import OpenAI
+from dotenv import load_dotenv
 from sklearn.feature_extraction.text import TfidfVectorizer
 from transformers import AutoModel, AutoModelForSequenceClassification, AutoTokenizer
 
@@ -212,10 +213,27 @@ class RAGSystem:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(); p.add_argument("document", type=Path)
+    load_dotenv(Path(__file__).resolve().with_name(".env"), override=False)
+    p = argparse.ArgumentParser(description="Hybrid RAG command-line knowledge base")
+    p.add_argument("document", type=Path, nargs="?", help="UTF-8 text document to index")
     p.add_argument("--mode", choices=("fast", "balanced", "precise"), default="balanced")
     p.add_argument("--embedding-model", default=os.getenv("RAG_EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5"))
-    p.add_argument("--reranker-model", default=os.getenv("RAG_RERANKER_MODEL")); args = p.parse_args()
+    p.add_argument("--reranker-model", default=os.getenv("RAG_RERANKER_MODEL"))
+    p.add_argument("--check-config", action="store_true", help="show configuration without loading models")
+    args = p.parse_args()
+    if args.check_config:
+        key = os.getenv("RAG_API_KEY")
+        print(f"API Key: {'已配置（' + key[:4] + '***）' if key else '未配置（仅检索模式）'}")
+        print(f"Base URL: {os.getenv('RAG_BASE_URL') or '未配置（OpenAI 默认地址）'}")
+        print(f"LLM: {os.getenv('RAG_LLM_MODEL', 'qwen-turbo')}")
+        print(f"Embedding: {args.embedding_model}")
+        print(f"Reranker: {args.reranker_model or '未启用'}")
+        print(f"CUDA: {'可用 - ' + torch.cuda.get_device_name(0) if torch.cuda.is_available() else '不可用'}")
+        return
+    if args.document is None:
+        p.error("请提供文档路径，或使用 --check-config 检查配置")
+    if not args.document.is_file():
+        p.error(f"文档不存在：{args.document}")
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
     cfg = RAGConfig(embedding_model=args.embedding_model, reranker_model=args.reranker_model)
     rag = RAGSystem(os.getenv("RAG_API_KEY"), os.getenv("RAG_BASE_URL"), os.getenv("RAG_LLM_MODEL", "qwen-turbo"), cfg)
