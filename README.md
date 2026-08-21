@@ -1,43 +1,177 @@
-# 精细与快速共存的 Hybrid RAG
+# SimpleRAG：精细与快速共存的中文 Hybrid RAG
 
-系统采用稠密语义召回 + 中文字符 n-gram 关键词召回，以加权 RRF 融合；再按场景选择跳过重排、轻量重排或 Cross-Encoder 精排。回答携带来源编号，低相关问题直接拒答。仓库不包含模型权重，首次运行时按配置从 Hugging Face 下载到本机缓存。
+本项目使用稠密语义召回、中文字符 n-gram 关键词召回和加权 RRF 融合，并按请求选择快速、平衡或精确重排。仓库不包含模型权重，首次运行时模型会下载到本机缓存。
 
-| 模式 | 候选数 | 重排 | 场景 |
+## 1. 三种运行模式
+
+| 模式 | 候选数 | 重排 | 使用场景 |
 |---|---:|---|---|
-| `fast` | 12 | 无 | 高并发客服、联想提示 |
-| `balanced` | 30 | 轻量融合分数 | 默认企业问答 |
+| `fast` | 12 | 无 | 高并发、低延迟 |
+| `balanced` | 30 | 轻量重排 | 默认企业问答 |
 | `precise` | 60 | Cross-Encoder（配置后） | 合同、制度、复杂问题 |
 
-## 模型比较与推荐
+## 2. 在 Windows 台式机安装
 
-| 层次 | 快速/低成本 | 精细/高质量 | 结论 |
-|---|---|---|---|
-| Embedding | `BAAI/bge-small-zh-v1.5` | `BAAI/bge-m3` | 当前 MiniLM 偏英文，仅适合演示；中文生产优先 bge-m3 |
-| Reranker | `BAAI/bge-reranker-base` | `BAAI/bge-reranker-v2-m3` | 只在 precise 路径启用，避免拖慢所有请求 |
-| LLM | Qwen 7B/14B 级 | Qwen 32B/72B 级 | 按问题复杂度路由，大模型不替代检索 |
-| 向量库 | FAISS 单机 | Milvus/Qdrant/pgvector | 多租户、在线增量和横向扩展时迁移 |
-
-最终模型须用企业黄金问答集，以 Recall@20、MRR@10、Faithfulness、拒答准确率、P95 延迟和单问成本联合选型。
-
-## 运行
+建议使用 Python 3.11 或 3.12。打开 PowerShell：
 
 ```powershell
+git clone https://github.com/Suhang656/simpleRAG.git
+cd simpleRAG
+python -m venv .venv
+Set-ExecutionPolicy -Scope Process Bypass
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-$env:RAG_API_KEY = "..."
-$env:RAG_BASE_URL = "https://your-endpoint/v1"
-$env:RAG_EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5" # 先验证低资源方案
-# 精确模式再设置：$env:RAG_RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
-python simpleRAG.py 三体.txt --mode balanced
 ```
 
-未配置 API Key 时返回带编号的检索片段。密钥必须从企业密钥管理系统注入，禁止进入源码。
+默认依赖兼容 CPU。如果使用 RTX 3090，请按 [PyTorch 官网](https://pytorch.org/get-started/locally/) 给出的命令安装与驱动匹配的 CUDA 版 `torch`，随后检查：
 
-台式机首次测试建议先使用默认的 `bge-small-zh-v1.5 + balanced`，确认链路后再切换 `bge-m3 + precise`。如果使用 NVIDIA GPU，请根据显卡驱动在 PyTorch 官网选择对应 CUDA 版本安装 `torch`；`requirements.txt` 默认兼容 CPU 环境。
+```powershell
+python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+```
 
-## 企业落地补全项
+输出应包含 `True` 和显卡名称。
 
-1. 入库保留标题、页码、权限、部门、版本和生效日期，按结构分块；建立增量索引、版本、灰度及回滚。
-2. 检索前强制租户与 ACL 过滤；向量库生产化后提供副本、备份和容量治理。
-3. API 加入 SSO/鉴权、限流、缓存、流式输出、超时、熔断；三类模型独立扩缩容。
-4. 监控召回率、引用正确率、拒答率、P50/P95、token 成本和漂移，建立用户反馈与评测闭环。
-5. 做入库脱敏、审计、数据保留和提示注入防护；索引内容一律视为不可信输入。
+## 3. API Key 放在哪里
+
+推荐使用项目级 `.env`，它和 `simpleRAG.py` 位于同一目录：
+
+```text
+simpleRAG/
+├── .env              ← 真实 API Key 放这里，不上传 GitHub
+├── .env.example      ← 可公开的配置模板
+├── simpleRAG.py
+└── requirements.txt
+```
+
+在项目目录执行：
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+阿里云百炼公共端点示例：
+
+```dotenv
+RAG_API_KEY=sk-替换成真实密钥
+RAG_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+RAG_LLM_MODEL=qwen-plus
+RAG_EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+# RAG_RERANKER_MODEL=BAAI/bge-reranker-v2-m3
+LOG_LEVEL=INFO
+```
+
+注意事项：
+
+- 不要给值添加中文引号，不要把真实 Key 写入 `.env.example`。
+- `.env` 已列入 `.gitignore`，不会被正常 Git 提交上传。
+- 百炼的 Key、地域和 Base URL 必须匹配；业务空间应使用控制台给出的 Workspace URL。
+- 使用其他 OpenAI 兼容服务时，只需替换 Key、Base URL 和模型名称。
+
+程序自动读取 `.env`。操作系统环境变量优先于 `.env`，生产服务器仍可使用密钥管理系统注入。
+
+### 可选：Windows 用户级全局变量
+
+不想使用 `.env` 时可执行：
+
+```powershell
+[Environment]::SetEnvironmentVariable('RAG_API_KEY', '你的真实Key', 'User')
+[Environment]::SetEnvironmentVariable('RAG_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'User')
+[Environment]::SetEnvironmentVariable('RAG_LLM_MODEL', 'qwen-plus', 'User')
+```
+
+设置后关闭并重新打开 PowerShell。项目级 `.env` 更安全、容易迁移；用户级变量会影响该 Windows 账号下的所有程序。
+
+## 4. 检查配置
+
+以下命令不加载模型，也不发起 API 请求：
+
+```powershell
+python simpleRAG.py --check-config
+```
+
+程序只显示 Key 前四位，不打印完整密钥。确认 CUDA、Base URL 和模型名称正确。
+
+## 5. 准备知识库文档
+
+当前版本读取 UTF-8 纯文本。建议把企业文档放在仓库之外，例如：
+
+```text
+D:\RAG_DATA\公司制度.txt
+```
+
+首次验证可新建一个测试文本，写入几段能够人工核对的事实内容。
+
+## 6. 启动问答
+
+```powershell
+# 快速模式
+python simpleRAG.py "D:\RAG_DATA\公司制度.txt" --mode fast
+
+# 默认平衡模式
+python simpleRAG.py "D:\RAG_DATA\公司制度.txt" --mode balanced
+```
+
+精确模式需要先在 `.env` 取消 Reranker 的注释：
+
+```dotenv
+RAG_RERANKER_MODEL=BAAI/bge-reranker-v2-m3
+```
+
+然后运行：
+
+```powershell
+python simpleRAG.py "D:\RAG_DATA\公司制度.txt" --mode precise
+```
+
+首次运行会下载 Embedding/Reranker 模型，需要能够访问 Hugging Face。看到 `知识库已就绪` 后输入问题，输入 `quit` 退出。
+
+如果没有配置 `RAG_API_KEY`，程序进入离线检索调试模式：仍执行召回和重排，但直接返回带编号的知识片段，不调用 LLM。
+
+## 7. RTX 3090 推荐配置
+
+先用轻量组合验证：
+
+```dotenv
+RAG_EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+# 暂不启用 Reranker
+```
+
+流程稳定后切换高质量组合：
+
+```dotenv
+RAG_EMBEDDING_MODEL=BAAI/bge-m3
+RAG_RERANKER_MODEL=BAAI/bge-reranker-v2-m3
+```
+
+当前 LLM 通过 OpenAI 兼容 API 调用。如果以后使用 Ollama、vLLM 等 3090 本地服务，把 `RAG_BASE_URL` 改为本地 OpenAI 兼容地址，并填写对应模型名即可。
+
+## 8. 测试与常见问题
+
+```powershell
+python -m unittest -v
+```
+
+- `CUDA: 不可用`：安装了 CPU 版 PyTorch，或 NVIDIA 驱动/CUDA 版本不匹配。
+- `401 Unauthorized`：API Key 错误、失效，或 Key 与地域不匹配。
+- `model not found`：`RAG_LLM_MODEL` 不是当前账号可调用的模型代码。
+- 无法下载模型：检查 Hugging Face 网络，或下载模型后将变量设置为本地目录。
+- 只返回知识片段：没有读取到 `RAG_API_KEY`，运行 `--check-config` 检查。
+
+## 9. 模型选型
+
+| 层次 | 快速/低成本 | 精细/高质量 |
+|---|---|---|
+| Embedding | `BAAI/bge-small-zh-v1.5` | `BAAI/bge-m3` |
+| Reranker | 不启用或 `bge-reranker-base` | `BAAI/bge-reranker-v2-m3` |
+| LLM | Qwen 7B/14B 级 | API 大模型或多卡部署 |
+| 向量库 | FAISS 单机 | Milvus/Qdrant/pgvector |
+
+企业选型应以自有黄金问答集评估 Recall@20、MRR@10、引用正确率、拒答准确率、P95 延迟和单问成本。
+
+## 安全原则
+
+- 永远不要提交 `.env`、API Key、企业知识库或生成索引。
+- 生产环境使用密钥管理系统、租户/ACL 过滤、审计、限流、超时和熔断。
+- 文档内容和用户问题都视为不可信输入，防范提示注入与敏感信息泄露。
